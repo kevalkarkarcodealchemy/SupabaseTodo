@@ -6,6 +6,7 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   MainTabs: undefined;
   MessageScreen: {recipientId: string; recipientName: string; recipientImage?: string};
+  EditProfileScreen: undefined;
 };
 
 export type TabParamList = {

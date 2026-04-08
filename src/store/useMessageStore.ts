@@ -1,94 +1,189 @@
-import {create} from 'zustand';
-import {supabase} from '../services/supabaseClient';
-import {MessageStore, Message} from '../types';
+import { create } from "zustand";
+import { supabase } from "../services/supabaseClient";
+import { MessageStore, Message, Conversation } from "../types";
 
 const useMessageStore = create<MessageStore>((set, get) => ({
   messages: [],
+  conversationId: null,
   isLoading: false,
   error: null,
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // resolveConversation: Just fetches an existing ID without creating one
+  // ─────────────────────────────────────────────────────────────────────────
+  resolveConversation: async (
+    senderId: string,
+    receiverId: string,
+  ): Promise<string | null> => {
+    const { data: existing, error: fetchError } = await supabase
+      .from("Conversation")
+      .select("id")
+      .or(
+        `and(sender_id.eq.${senderId},receiver_id.eq.${receiverId}),` +
+          `and(sender_id.eq.${receiverId},receiver_id.eq.${senderId})`,
+      )
+      .maybeSingle();
+
+    if (fetchError) {
+      return null;
+    }
+
+    if (existing) {
+      set({ conversationId: existing.id });
+      return existing.id;
+    }
+
+    set({ conversationId: null });
+    return null;
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fetch all messages for an existing conversation
+  // ─────────────────────────────────────────────────────────────────────────
   fetchMessages: async (currentUserId: string, otherUserId: string) => {
-    set({isLoading: true, error: null, messages: []});
+    set({ isLoading: true, error: null, messages: [] });
     try {
-      const {data, error} = await supabase
-        .from('Messages')
-        .select('*')
-        .or(
-          `and(sender_id.eq.${currentUserId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUserId})`,
-        )
-        .order('created_at', {ascending: true});
+      const conversationId = await get().resolveConversation(
+        currentUserId,
+        otherUserId,
+      );
+
+      if (!conversationId) {
+        set({ isLoading: false });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("Messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
-      set({messages: (data as Message[]) ?? [], isLoading: false});
+      set({ messages: (data as Message[]) ?? [], isLoading: false });
     } catch (error: any) {
-      console.error('Error fetching messages:', error);
-      set({error: error.message, isLoading: false});
+      set({ error: error.message, isLoading: false });
     }
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Send a message — creates the conversation row ONLY if it doesn't exist
+  // ─────────────────────────────────────────────────────────────────────────
   sendMessage: async (senderId: string, receiverId: string, text: string) => {
     try {
-      const {data, error} = await supabase
-        .from('Messages')
-        .insert([{sender_id: senderId, receiver_id: receiverId, content: text}])
+      let conversationId = get().conversationId;
+
+      // If not in state, try to resolve from DB
+      if (!conversationId) {
+        conversationId = await get().resolveConversation(senderId, receiverId);
+      }
+
+      // If still no conversation, CREATE IT NOW (first message ever)
+      if (!conversationId) {
+        const { data: created, error: createError } = await supabase
+          .from("Conversation")
+          .insert([{ sender_id: senderId, receiver_id: receiverId }])
+          .select("id")
+          .single();
+
+        if (createError) throw createError;
+        conversationId = (created as any).id;
+        set({ conversationId });
+      }
+
+      // Step 2 — Insert the message linked to the resolved conversation_id
+      const { data: newMsg, error: msgError } = await supabase
+        .from("Messages")
+        .insert([
+          {
+            conversation_id: conversationId,
+            sender_id: senderId,
+            receiver_id: receiverId,
+            content: text,
+          },
+        ])
         .select()
         .single();
 
-      if (error) throw error;
+      if (msgError) throw msgError;
 
-      // Optimistically append the message in case realtime is delayed
-      const messages = get().messages;
-      const alreadyExists = messages.some(m => m.id === (data as Message).id);
-      if (!alreadyExists) {
-        set({
-           messages: [...messages, data as Message],
-        });
+      // Step 3 — Update Conversation metadata (last_message, timestamp)
+      // This is a best-effort denormalisation update; it does NOT block the
+      // message from being delivered if it fails.
+      const { error: updateError } = await supabase
+        .from("Conversation")
+        .update({
+          last_message: text,
+          last_message_sender_id: senderId,
+          last_message_at: new Date().toISOString(),
+        })
+        .eq("id", conversationId);
+
+      if (updateError) {
+        console.error(
+          "[Chat] Update Conversation metadata failed:",
+          updateError.message,
+          {
+            code: updateError.code,
+            hint: updateError.hint,
+            details: updateError.details,
+          },
+        );
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
+
+      // Optimistic local append (in case realtime is delayed)
+      const messages = get().messages;
+      const alreadyExists = messages.some(
+        (m) => m.id === (newMsg as Message).id,
+      );
+      if (!alreadyExists) {
+        set({ messages: [...messages, newMsg as Message] });
+      }
+    } catch (error: any) {
       throw error;
     }
   },
 
-  subscribeToMessages: (currentUserId: string, otherUserId: string) => {
-    // Use a deterministic channel name (sorted IDs so A-B === B-A)
-    const channelName = `messages:${[currentUserId, otherUserId].sort().join('-')}`;
-
-    // Remove any stale channel with the same name before creating a new one
-    // supabase.removeChannel(supabase.channel(channelName));
+  // ─────────────────────────────────────────────────────────────────────────
+  // Realtime subscription — improved to handle the "first message" scenario
+  // ─────────────────────────────────────────────────────────────────────────
+  subscribeToMessages: (myId: string, otherId: string) => {
+    const channelName = `messages:pair:${[myId, otherId].sort().join("-")}`;
 
     const channel = supabase
       .channel(channelName)
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'Messages',
+          event: "INSERT",
+          schema: "public",
+          table: "Messages",
         },
-        payload => {
+        (payload) => {
           const newMessage = payload.new as Message;
 
-          // Only process messages that belong to this conversation
-          const isRelevant =
-            (newMessage.sender_id === currentUserId &&
-              newMessage.receiver_id === otherUserId) ||
-            (newMessage.sender_id === otherUserId &&
-              newMessage.receiver_id === currentUserId);
+          // Check if this message belongs to our current chat pair
+          const isFromOtherToMe =
+            newMessage.sender_id === otherId && newMessage.receiver_id === myId;
+          const isFromMeToOther =
+            newMessage.sender_id === myId && newMessage.receiver_id === otherId;
 
-          if (!isRelevant) return;
+          if (!isFromOtherToMe && !isFromMeToOther) return;
 
-          const {messages} = get();
+          // Sync conversationId if it was missing locally
+          if (!get().conversationId && newMessage.conversation_id) {
+            set({ conversationId: newMessage.conversation_id });
+          }
 
-          // Deduplicate: skip if already added via optimistic update
-          const alreadyExists = messages.some(m => m.id === newMessage.id);
+          const { messages } = get();
+          const alreadyExists = messages.some((m) => m.id === newMessage.id);
           if (!alreadyExists) {
-            set({messages: [...messages, newMessage]});
+            set({ messages: [...messages, newMessage] });
           }
         },
       )
-      .subscribe(status => {
-        console.log('[Realtime] Messages channel status:', status);
+      .subscribe((status) => {
+        console.log("[Realtime] Messages channel status:", status);
       });
 
     return () => {
