@@ -41,26 +41,34 @@ const useMessageStore = create<MessageStore>((set, get) => ({
   // Fetch all messages for an existing conversation
   // ─────────────────────────────────────────────────────────────────────────
   fetchMessages: async (currentUserId: string, otherUserId: string) => {
-    set({ isLoading: true, error: null, messages: [] });
+    set({ isLoading: true, error: null });
     try {
-      const conversationId = await get().resolveConversation(
+      const convId = await get().resolveConversation(
         currentUserId,
         otherUserId,
       );
 
-      if (!conversationId) {
-        set({ isLoading: false });
+      if (!convId) {
+        set({ messages: [], isLoading: false });
         return;
       }
 
       const { data, error } = await supabase
         .from("Messages")
         .select("*")
-        .eq("conversation_id", conversationId)
+        .eq("conversation_id", convId)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      set({ messages: (data as Message[]) ?? [], isLoading: false });
+
+      // Only update if conversation haven't changed while fetching
+      if (get().conversationId === convId || !get().conversationId) {
+        set({
+          messages: (data as Message[]) ?? [],
+          isLoading: false,
+          conversationId: convId,
+        });
+      }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
@@ -71,15 +79,15 @@ const useMessageStore = create<MessageStore>((set, get) => ({
   // ─────────────────────────────────────────────────────────────────────────
   sendMessage: async (senderId: string, receiverId: string, text: string) => {
     try {
-      let conversationId = get().conversationId;
+      let currentConvId = get().conversationId;
 
       // If not in state, try to resolve from DB
-      if (!conversationId) {
-        conversationId = await get().resolveConversation(senderId, receiverId);
+      if (!currentConvId) {
+        currentConvId = await get().resolveConversation(senderId, receiverId);
       }
 
       // If still no conversation, CREATE IT NOW (first message ever)
-      if (!conversationId) {
+      if (!currentConvId) {
         const { data: created, error: createError } = await supabase
           .from("Conversation")
           .insert([{ sender_id: senderId, receiver_id: receiverId }])
@@ -87,8 +95,8 @@ const useMessageStore = create<MessageStore>((set, get) => ({
           .single();
 
         if (createError) throw createError;
-        conversationId = (created as any).id;
-        set({ conversationId });
+        currentConvId = (created as any).id;
+        set({ conversationId: currentConvId });
       }
 
       // Step 2 — Insert the message linked to the resolved conversation_id
@@ -96,7 +104,7 @@ const useMessageStore = create<MessageStore>((set, get) => ({
         .from("Messages")
         .insert([
           {
-            conversation_id: conversationId,
+            conversation_id: currentConvId,
             sender_id: senderId,
             receiver_id: receiverId,
             content: text,
@@ -108,36 +116,23 @@ const useMessageStore = create<MessageStore>((set, get) => ({
       if (msgError) throw msgError;
 
       // Step 3 — Update Conversation metadata (last_message, timestamp)
-      // This is a best-effort denormalisation update; it does NOT block the
-      // message from being delivered if it fails.
-      const { error: updateError } = await supabase
+      // Fetch sender name for the initial
+      await supabase
         .from("Conversation")
         .update({
           last_message: text,
           last_message_sender_id: senderId,
           last_message_at: new Date().toISOString(),
         })
-        .eq("id", conversationId);
+        .eq("id", currentConvId);
 
-      if (updateError) {
-        console.error(
-          "[Chat] Update Conversation metadata failed:",
-          updateError.message,
-          {
-            code: updateError.code,
-            hint: updateError.hint,
-            details: updateError.details,
-          },
-        );
-      }
-
-      // Optimistic local append (in case realtime is delayed)
-      const messages = get().messages;
-      const alreadyExists = messages.some(
-        (m) => m.id === (newMsg as Message).id,
+      // Optimistic local append if not already there
+      const currentMessages = get().messages;
+      const exists = currentMessages.some(
+        (m) => String(m.id) === String((newMsg as Message).id),
       );
-      if (!alreadyExists) {
-        set({ messages: [...messages, newMsg as Message] });
+      if (!exists) {
+        set({ messages: [...currentMessages, newMsg as Message] });
       }
     } catch (error: any) {
       throw error;
@@ -145,46 +140,159 @@ const useMessageStore = create<MessageStore>((set, get) => ({
   },
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Realtime subscription — improved to handle the "first message" scenario
+  // Update a message
+  // ─────────────────────────────────────────────────────────────────────────
+  updateMessage: async (messageId: string, newContent: string) => {
+    try {
+      const { error } = await supabase
+        .from("Messages")
+        .update({ content: newContent })
+        .eq("id", messageId);
+
+      if (error) throw error;
+
+      // Optimistic update
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === messageId ? { ...m, content: newContent } : m,
+        ),
+      }));
+
+      // Sync Conversation metadata if this was the last message
+      const state = get();
+      const lastMsg = state.messages[state.messages.length - 1];
+      if (lastMsg && lastMsg.id === messageId && state.conversationId) {
+        const { data: sender } = await supabase
+          .from("User")
+          .select("name")
+          .eq("id", lastMsg.sender_id)
+          .single();
+
+        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
+        await supabase
+          .from("Conversation")
+          .update({
+            last_message: `${initial}: ${newContent}`,
+            last_message_at: new Date().toISOString(),
+          })
+          .eq("id", state.conversationId);
+      }
+    } catch (error: any) {
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Delete a message
+  // ─────────────────────────────────────────────────────────────────────────
+  deleteMessage: async (messageId: string) => {
+    try {
+      const { error } = await supabase
+        .from("Messages")
+        .delete()
+        .eq("id", messageId);
+
+      if (error) throw error;
+
+      // Optimistic delete
+      set((state) => ({
+        messages: state.messages.filter((m) => m.id !== messageId),
+      }));
+
+      // Find the new last message and sync Conversation metadata
+      const state = get();
+      const lastMsg = state.messages[state.messages.length - 1];
+      const conversationId = state.conversationId;
+
+      if (!conversationId) return;
+
+      if (lastMsg) {
+        const { data: sender } = await supabase
+          .from("User")
+          .select("name")
+          .eq("id", lastMsg.sender_id)
+          .single();
+
+        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
+        await supabase
+          .from("Conversation")
+          .update({
+            last_message: `${initial}: ${lastMsg.content}`,
+            last_message_at: lastMsg.created_at,
+            last_message_sender_id: lastMsg.sender_id,
+          })
+          .eq("id", conversationId);
+      } else {
+        await supabase
+          .from("Conversation")
+          .update({
+            last_message: null,
+            last_message_at: null,
+            last_message_sender_id: null,
+          })
+          .eq("id", conversationId);
+      }
+    } catch (error: any) {
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Realtime subscription — listens for new, updated, and deleted messages
   // ─────────────────────────────────────────────────────────────────────────
   subscribeToMessages: (myId: string, otherId: string) => {
-    const channelName = `messages:pair:${[myId, otherId].sort().join("-")}`;
+    // Unique channel name for this specific chat pair
+    const channelId = [myId, otherId].sort().join("_");
+    const channelName = `chat_room_${channelId}`;
 
     const channel = supabase
       .channel(channelName)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*", // Listen to all events: INSERT, UPDATE, DELETE
           schema: "public",
           table: "Messages",
         },
         (payload) => {
-          const newMessage = payload.new as Message;
+          if (payload.eventType === "INSERT") {
+            const newMessage = payload.new as Message;
+            const isRelevant =
+              (newMessage.sender_id === otherId &&
+                newMessage.receiver_id === myId) ||
+              (newMessage.sender_id === myId &&
+                newMessage.receiver_id === otherId);
 
-          // Check if this message belongs to our current chat pair
-          const isFromOtherToMe =
-            newMessage.sender_id === otherId && newMessage.receiver_id === myId;
-          const isFromMeToOther =
-            newMessage.sender_id === myId && newMessage.receiver_id === otherId;
+            if (!isRelevant) return;
 
-          if (!isFromOtherToMe && !isFromMeToOther) return;
+            if (!get().conversationId && newMessage.conversation_id) {
+              set({ conversationId: newMessage.conversation_id });
+            }
 
-          // Sync conversationId if it was missing locally
-          if (!get().conversationId && newMessage.conversation_id) {
-            set({ conversationId: newMessage.conversation_id });
-          }
+            const currentMessages = get().messages;
+            const exists = currentMessages.some(
+              (m) => String(m.id) === String(newMessage.id),
+            );
 
-          const { messages } = get();
-          const alreadyExists = messages.some((m) => m.id === newMessage.id);
-          if (!alreadyExists) {
-            set({ messages: [...messages, newMessage] });
+            if (!exists) {
+              set({ messages: [...currentMessages, newMessage] });
+            }
+          } else if (payload.eventType === "UPDATE") {
+            const updatedMessage = payload.new as Message;
+            set((state) => ({
+              messages: state.messages.map((m) =>
+                m.id === updatedMessage.id ? updatedMessage : m,
+              ),
+            }));
+          } else if (payload.eventType === "DELETE") {
+            const deletedMessageId = payload.old.id;
+            set((state) => ({
+              messages: state.messages.filter((m) => m.id !== deletedMessageId),
+            }));
           }
         },
       )
-      .subscribe((status) => {
-        console.log("[Realtime] Messages channel status:", status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);

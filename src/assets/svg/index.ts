@@ -1,0 +1,10 @@
+export { default as BackIcon } from "./BackIcon";
+export { default as ChatIcon } from "./ChatIcon";
+export { default as DeleteIcon } from "./DeleteIcon";
+export { default as EditIcon } from "./EditIcon";
+export { default as FriendIcon } from "./FriendIcon";
+export { default as GroupIcon } from "./GroupIcon";
+export { default as HomeIcon } from "./HomeIcon";
+export { default as PersonIcon } from "./PersonIcon";
+export { default as SettingIcon } from "./SettingIcon";
+export { default as GoogleIcon } from "./google";

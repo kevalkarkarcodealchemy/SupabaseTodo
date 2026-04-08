@@ -7,6 +7,8 @@ import FriendScreen from "../screens/app/FriendScreen";
 import ChatScreen from "../screens/app/ChatScreen";
 import MessageScreen from "../screens/app/MessageScreen";
 import EditProfileScreen from "../screens/app/EditProfileScreen";
+import CreateGroupScreen from "../screens/app/CreateGroupScreen";
+import ChatProfileScreen from "../screens/app/ChatProfileScreen";
 import { AppStackParamList, TabParamList } from "../types/navigation";
 
 // SVG Icons
@@ -30,19 +32,19 @@ const TabNavigator: React.FC = () => {
       }}
     >
       <Tab.Screen
-        name="Friend"
-        component={FriendScreen}
-        options={{
-          headerShown: false,
-          tabBarIcon: ({ color }) => <FriendIcon color={color} />,
-        }}
-      />
-      <Tab.Screen
         name="Chat"
         component={ChatScreen}
         options={{
           headerShown: false,
           tabBarIcon: ({ color }) => <ChatIcon color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Friend"
+        component={FriendScreen}
+        options={{
+          headerShown: false,
+          tabBarIcon: ({ color }) => <FriendIcon color={color} />,
         }}
       />
       <Tab.Screen
@@ -71,6 +73,20 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="EditProfileScreen"
         component={EditProfileScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+      <Stack.Screen
+        name="CreateGroupScreen"
+        component={CreateGroupScreen}
+        options={{
+          animation: "slide_from_bottom",
+        }}
+      />
+      <Stack.Screen
+        name="ChatProfileScreen"
+        component={ChatProfileScreen}
         options={{
           animation: "slide_from_right",
         }}

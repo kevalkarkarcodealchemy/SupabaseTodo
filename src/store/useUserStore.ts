@@ -19,6 +19,7 @@ const useUserStore = create<UserStore>((set, get) => ({
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
+    0;
   },
 
   subscribeToUsers: () => {
@@ -36,7 +37,6 @@ const useUserStore = create<UserStore>((set, get) => ({
           const { users } = get();
 
           if (eventType === "INSERT") {
-            // Avoid duplicates
             const exists = users.some((u) => u.id === (newUser as User).id);
             if (!exists) {
               set({ users: [...users, newUser as User] });

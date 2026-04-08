@@ -11,17 +11,35 @@ export interface User {
 
 export interface Conversation {
   id: string;
-  sender_id: string;
-  receiver_id: string;
+  sender_id: string | null;
+  receiver_id: string | null;
   last_message: string | null;
   last_message_sender_id: string | null;
   last_message_at: string | null;
   created_at: string;
+  is_group?: boolean;
+  group_name?: string | null;
+  created_by?: string | null;
+}
+
+export interface GroupMember {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  joined_at: string;
+}
+
+export interface GroupConversation extends Conversation {
+  is_group: boolean;
+  group_name: string | null;
+  created_by: string | null;
 }
 
 export interface ConversationWithUser {
   id: string;
-  otherUserId: string;
+  isGroup?: boolean;
+  groupName?: string | null;
+  otherUserId?: string;
   otherUserName: string;
   otherUserImage: string | null;
   lastMessage: string | null;
@@ -78,6 +96,8 @@ export interface MessageStore {
     receiverId: string,
     text: string,
   ) => Promise<void>;
+  updateMessage: (messageId: string, newContent: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
   subscribeToMessages: (myId: string, otherId: string) => () => void;
 }
 
@@ -87,4 +107,18 @@ export interface ChatListStore {
   error: string | null;
   fetchConversations: (currentUserId: string) => Promise<void>;
   subscribeToConversations: (currentUserId: string) => () => void;
+}
+
+export interface GroupStore {
+  messages: Message[];
+  conversationId: string | null;
+  isLoading: boolean;
+  error: string | null;
+  createGroup: (name: string, memberIds: string[], creatorId: string) => Promise<string>;
+  fetchGroupMembers: (conversationId: string) => Promise<User[]>;
+  fetchGroupMessages: (conversationId: string) => Promise<void>;
+  sendGroupMessage: (conversationId: string, senderId: string, text: string) => Promise<void>;
+  updateMessage: (messageId: string, newContent: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
+  subscribeToGroupMessages: (conversationId: string) => () => void;
 }

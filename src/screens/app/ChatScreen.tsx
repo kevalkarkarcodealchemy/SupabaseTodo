@@ -18,6 +18,7 @@ import useAuthStore from "../../store/useAuthStore";
 import useChatListStore from "../../store/useChatListStore";
 import { AppStackParamList } from "../../types/navigation";
 import { ConversationWithUser } from "../../types";
+import { GroupIcon, PersonIcon } from "../../assets/svg";
 
 interface Props {
   navigation: NativeStackNavigationProp<AppStackParamList>;
@@ -45,18 +46,23 @@ const ChatCard: React.FC<{
   onPress: (item: ConversationWithUser) => void;
 }> = ({ item, onPress }) => {
   const initial = item.otherUserName?.charAt(0)?.toUpperCase() ?? "?";
-
   return (
     <TouchableOpacity
       style={styles.card}
       onPress={() => onPress(item)}
       activeOpacity={0.7}
     >
-      {item.otherUserImage ? (
+      {item.isGroup ? (
+        <View style={styles.groupAvatarPlaceholder}>
+          <GroupIcon size={24} color="#FFFFFF" />
+        </View>
+      ) : item.otherUserImage &&
+        item.otherUserImage !== "EMPTY" &&
+        item.otherUserImage.trim() !== "" ? (
         <Image source={{ uri: item.otherUserImage }} style={styles.avatar} />
       ) : (
         <View style={styles.avatarPlaceholder}>
-          <Text style={styles.avatarInitial}>{initial}</Text>
+          <PersonIcon size={28} color="#FFFFFF" />
         </View>
       )}
       <View style={styles.cardBody}>
@@ -114,11 +120,20 @@ const ChatScreen: React.FC<Props> = ({ navigation }) => {
   }, [currentUser?.id, fetchConversations]);
 
   const handleCardPress = (item: ConversationWithUser) => {
-    navigation.navigate("MessageScreen", {
-      recipientId: item.otherUserId,
-      recipientName: item.otherUserName,
-      recipientImage: item.otherUserImage ?? undefined,
-    } as any);
+    if (item.isGroup) {
+      navigation.navigate("MessageScreen", {
+        isGroup: true,
+        conversationId: item.id,
+        groupName: item.groupName ?? "Group",
+      } as any);
+    } else {
+      navigation.navigate("MessageScreen", {
+        isGroup: false,
+        recipientId: item.otherUserId,
+        recipientName: item.otherUserName,
+        recipientImage: item.otherUserImage ?? undefined,
+      } as any);
+    }
   };
 
   return (
@@ -224,6 +239,15 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     backgroundColor: "#4F46E5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+  },
+  groupAvatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#10B981",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 14,

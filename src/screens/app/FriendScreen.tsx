@@ -20,6 +20,7 @@ import useUserStore from "../../store/useUserStore";
 import useAuthStore from "../../store/useAuthStore";
 import { TabParamList, AppStackParamList } from "../../types/navigation";
 import { User } from "../../types";
+import GroupIcon from "../../assets/svg/GroupIcon";
 
 type FriendScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<TabParamList, "Friend">,
@@ -127,9 +128,17 @@ const FriendScreen: React.FC<Props> = ({ navigation }) => {
             {users.length} people online
           </Text>
         </View>
-        <TouchableOpacity style={styles.headerAction}>
-          <Text style={styles.headerActionText}>Find</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => navigation.navigate("CreateGroupScreen")}
+          >
+            <GroupIcon size={22} color="#111827" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerAction}>
+            <Text style={styles.headerActionText}>Find</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.content}>
@@ -175,6 +184,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  iconButton: {
+    padding: 8,
+    marginRight: 10,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 20,
   },
   headerAction: {
     backgroundColor: "#4F46E5",

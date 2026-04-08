@@ -5,8 +5,24 @@ export type AuthStackParamList = {
 
 export type AppStackParamList = {
   MainTabs: undefined;
-  MessageScreen: {recipientId: string; recipientName: string; recipientImage?: string};
+  MessageScreen: {
+    isGroup?: boolean;
+    recipientId?: string;
+    recipientName?: string;
+    recipientImage?: string;
+    conversationId?: string;
+    groupName?: string;
+  };
   EditProfileScreen: undefined;
+  CreateGroupScreen: undefined;
+  ChatProfileScreen: {
+    isGroup?: boolean;
+    recipientId?: string;
+    recipientName?: string;
+    recipientImage?: string;
+    conversationId?: string;
+    groupName?: string;
+  };
 };
 
 export type TabParamList = {
