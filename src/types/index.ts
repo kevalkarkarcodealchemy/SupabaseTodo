@@ -78,7 +78,12 @@ export interface UserStore {
   fetchUsers: () => Promise<void>;
   subscribeToUsers: () => () => void;
   setLoginUser: (user: User | null) => void;
-  updateProfile: (id: string, name: string, bio: string) => Promise<void>;
+  updateProfile: (
+    id: string,
+    name: string,
+    bio: string,
+    image?: string,
+  ) => Promise<void>;
 }
 
 export interface MessageStore {
@@ -98,6 +103,8 @@ export interface MessageStore {
   ) => Promise<void>;
   updateMessage: (messageId: string, newContent: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  deleteChat: (conversationId: string) => Promise<void>;
+  clearChat: (conversationId: string) => Promise<void>;
   subscribeToMessages: (myId: string, otherId: string) => () => void;
 }
 
@@ -114,11 +121,21 @@ export interface GroupStore {
   conversationId: string | null;
   isLoading: boolean;
   error: string | null;
-  createGroup: (name: string, memberIds: string[], creatorId: string) => Promise<string>;
+  createGroup: (
+    name: string,
+    memberIds: string[],
+    creatorId: string,
+  ) => Promise<string>;
   fetchGroupMembers: (conversationId: string) => Promise<User[]>;
   fetchGroupMessages: (conversationId: string) => Promise<void>;
-  sendGroupMessage: (conversationId: string, senderId: string, text: string) => Promise<void>;
+  sendGroupMessage: (
+    conversationId: string,
+    senderId: string,
+    text: string,
+  ) => Promise<void>;
   updateMessage: (messageId: string, newContent: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  clearChat: (conversationId: string) => Promise<void>;
+  deleteChat: (conversationId: string) => Promise<void>;
   subscribeToGroupMessages: (conversationId: string) => () => void;
 }

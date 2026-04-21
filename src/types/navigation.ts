@@ -1,10 +1,11 @@
+import { NavigatorScreenParams } from "@react-navigation/native";
 export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
 };
 
 export type AppStackParamList = {
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<TabParamList>;
   MessageScreen: {
     isGroup?: boolean;
     recipientId?: string;

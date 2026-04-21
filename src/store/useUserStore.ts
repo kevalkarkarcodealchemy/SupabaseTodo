@@ -19,12 +19,12 @@ const useUserStore = create<UserStore>((set, get) => ({
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
-    0;
   },
 
   subscribeToUsers: () => {
+    const uniqueId = Math.random().toString(36).substring(7);
     const subscription = supabase
-      .channel("user-changes")
+      .channel(`user-changes-${uniqueId}`)
       .on(
         "postgres_changes",
         {
@@ -66,12 +66,20 @@ const useUserStore = create<UserStore>((set, get) => ({
     set({ loginUser: user });
   },
 
-  updateProfile: async (id: string, name: string, bio: string) => {
+  updateProfile: async (
+    id: string,
+    name: string,
+    bio: string,
+    image?: string,
+  ) => {
     set({ isLoading: true, error: null });
     try {
+      const updateData: any = { name, bio };
+      if (image) updateData.image = image;
+
       const { data, error } = await supabase
         .from("User")
-        .update({ name, bio })
+        .update(updateData)
         .eq("id", id)
         .select()
         .single();

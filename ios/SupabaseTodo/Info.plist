@@ -58,5 +58,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app requires access to the photo library to let you pick a profile photo.</string>
 </dict>
 </plist>

@@ -139,11 +139,16 @@ const SettingScreen: React.FC = () => {
         <View style={styles.profileCard}>
           <View style={styles.profileInfo}>
             <View style={styles.avatarGlow}>
-              <View style={styles.avatarContainer}>
-                <Text style={styles.avatarInitial}>
-                  {loginUser?.name?.charAt(0).toUpperCase() || 
-                   user?.email?.charAt(0).toUpperCase() || "U"}
-                </Text>
+              <View style={[styles.avatarContainer, { overflow: "hidden" }]}>
+                {loginUser?.image ? (
+                  <Image source={{ uri: loginUser.image }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitial}>
+                    {loginUser?.name?.charAt(0).toUpperCase() ||
+                      user?.email?.charAt(0).toUpperCase() ||
+                      "U"}
+                  </Text>
+                )}
               </View>
             </View>
             <View style={styles.nameDetails}>
@@ -257,6 +262,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#4F46E5",
     justifyContent: "center",
     alignItems: "center",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
   avatarInitial: {
     color: "#FFFFFF",

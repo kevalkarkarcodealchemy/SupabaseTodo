@@ -16,11 +16,11 @@ const useChatListStore = create<ChatListStore>((set, get) => ({
         .select("conversation_id")
         .eq("user_id", currentUserId);
 
-      const groupIds = (groupMembers || []).map(gm => gm.conversation_id);
+      const groupIds = (groupMembers || []).map((gm) => gm.conversation_id);
       let orQuery = `sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`;
-      
+
       if (groupIds.length > 0) {
-        const inFilter = groupIds.map(id => `"${id}"`).join(',');
+        const inFilter = groupIds.map((id) => `"${id}"`).join(",");
         orQuery += `,id.in.(${inFilter})`;
       }
 
@@ -40,13 +40,17 @@ const useChatListStore = create<ChatListStore>((set, get) => ({
 
       // Fetch user profiles for 1-to-1 chats
       const otherUserIds = convs
-        .filter(c => !c.is_group)
-        .map((c) => (c.sender_id === currentUserId ? c.receiver_id : c.sender_id));
-        
-      const uniqueIds = Array.from(new Set(otherUserIds)).filter(Boolean) as string[];
+        .filter((c) => !c.is_group)
+        .map((c) =>
+          c.sender_id === currentUserId ? c.receiver_id : c.sender_id,
+        );
+
+      const uniqueIds = Array.from(new Set(otherUserIds)).filter(
+        Boolean,
+      ) as string[];
 
       let profileMap: any = {};
-      
+
       if (uniqueIds.length > 0) {
         const { data: profiles, error: profileError } = await supabase
           .from("User")
@@ -73,7 +77,8 @@ const useChatListStore = create<ChatListStore>((set, get) => ({
             lastMessageAt: row.last_message_at ?? null,
           };
         } else {
-          const otherId = row.sender_id === currentUserId ? row.receiver_id : row.sender_id;
+          const otherId =
+            row.sender_id === currentUserId ? row.receiver_id : row.sender_id;
           const profile = profileMap[otherId];
 
           return {
@@ -95,8 +100,11 @@ const useChatListStore = create<ChatListStore>((set, get) => ({
   },
 
   subscribeToConversations: (currentUserId: string) => {
+    const channelId = `chat-list-realtime-${currentUserId}-${Math.random()
+      .toString(36)
+      .substring(7)}`;
     const channel = supabase
-      .channel(`chat-list-realtime:${currentUserId}`)
+      .channel(channelId)
       .on(
         "postgres_changes",
         {
@@ -104,8 +112,70 @@ const useChatListStore = create<ChatListStore>((set, get) => ({
           schema: "public",
           table: "Conversation",
         },
-        () => {
-          get().fetchConversations(currentUserId);
+        (payload) => {
+          const record =
+            payload.eventType === "DELETE" ? payload.old : payload.new;
+          if (record) {
+            const isParticipant =
+              record.sender_id === currentUserId ||
+              record.receiver_id === currentUserId;
+            const isKnownConv = get().conversations.some(
+              (c) => c.id === record.id,
+            );
+            if (isParticipant || isKnownConv) {
+              get().fetchConversations(currentUserId);
+            }
+          } else {
+            get().fetchConversations(currentUserId);
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "Messages",
+        },
+        (payload) => {
+          const record =
+            payload.eventType === "DELETE" ? payload.old : payload.new;
+          if (record) {
+            const isParticipant =
+              record.sender_id === currentUserId ||
+              record.receiver_id === currentUserId;
+            const isKnownConv = get().conversations.some(
+              (c) => c.id === record.conversation_id,
+            );
+            if (isParticipant || isKnownConv) {
+              get().fetchConversations(currentUserId);
+            }
+          } else {
+            get().fetchConversations(currentUserId);
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "User",
+        },
+        (payload) => {
+          const record =
+            payload.eventType === "DELETE" ? payload.old : payload.new;
+          if (record) {
+            // Refresh if the changed user is someone we have a conversation with
+            const isRelevantUser = get().conversations.some(
+              (c) => !c.isGroup && c.otherUserId === record.id,
+            );
+            if (isRelevantUser || record.id === currentUserId) {
+              get().fetchConversations(currentUserId);
+            }
+          } else {
+            get().fetchConversations(currentUserId);
+          }
         },
       )
       .subscribe();

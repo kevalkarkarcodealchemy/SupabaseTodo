@@ -119,12 +119,18 @@ const useGroupStore = create<GroupStore>((set, get) => ({
       if (msgError) throw msgError;
 
       // Step 2 — Update Conversation metadata (last_message, timestamp)
-      // Fetch sender name for the initial
+      const { data: sender } = await supabase
+        .from("User")
+        .select("name")
+        .eq("id", senderId)
+        .single();
+
+      const initial = sender?.name?.split(" ")[0] || "User";
 
       const { error: updateError } = await supabase
         .from("Conversation")
         .update({
-          last_message: text,
+          last_message: `${initial}: ${text}`,
           last_message_sender_id: senderId,
           last_message_at: new Date().toISOString(),
         })
@@ -151,31 +157,40 @@ const useGroupStore = create<GroupStore>((set, get) => ({
 
   updateMessage: async (messageId: string, newContent: string) => {
     try {
-      const { error } = await supabase
+      const state = get();
+      const targetMessage = state.messages.find(
+        (m) => String(m.id) === String(messageId),
+      );
+      if (!targetMessage) return;
+
+      const { data, error } = await supabase
         .from("Messages")
         .update({ content: newContent })
-        .eq("id", messageId);
+        .eq("id", targetMessage.id)
+        .select();
 
       if (error) throw error;
 
       // Optimistic update
       set((state) => ({
         messages: state.messages.map((m) =>
-          m.id === messageId ? { ...m, content: newContent } : m,
+          String(m.id) === String(messageId)
+            ? { ...m, content: newContent }
+            : m,
         ),
       }));
 
       // Sync Conversation metadata if this was the last message
       const messages = get().messages;
       const lastMsg = messages[messages.length - 1];
-      if (lastMsg && lastMsg.id === messageId) {
+      if (lastMsg && String(lastMsg.id) === String(messageId)) {
         const { data: sender } = await supabase
           .from("User")
           .select("name")
           .eq("id", lastMsg.sender_id)
           .single();
 
-        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
+        const initial = sender?.name?.split(" ")[0] || "User";
         await supabase
           .from("Conversation")
           .update({
@@ -185,6 +200,7 @@ const useGroupStore = create<GroupStore>((set, get) => ({
           .eq("id", get().conversationId);
       }
     } catch (error: any) {
+      console.error("[GroupStore] updateMessage error:", error);
       throw error;
     }
   },
@@ -200,7 +216,9 @@ const useGroupStore = create<GroupStore>((set, get) => ({
 
       // Optimistic delete
       set((state) => ({
-        messages: state.messages.filter((m) => m.id !== messageId),
+        messages: state.messages.filter(
+          (m) => String(m.id) !== String(messageId),
+        ),
       }));
 
       // Find the new last message and sync Conversation metadata
@@ -215,7 +233,7 @@ const useGroupStore = create<GroupStore>((set, get) => ({
           .eq("id", lastMsg.sender_id)
           .single();
 
-        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
+        const initial = sender?.name?.split(" ")[0] || "User";
         await supabase
           .from("Conversation")
           .update({
@@ -228,7 +246,7 @@ const useGroupStore = create<GroupStore>((set, get) => ({
           .from("Conversation")
           .update({
             last_message: "No messages yet",
-            last_message_at: null,
+            last_message_at: new Date().toISOString(),
           })
           .eq("id", conversationId);
       }
@@ -237,15 +255,85 @@ const useGroupStore = create<GroupStore>((set, get) => ({
     }
   },
 
+  clearChat: async (conversationId: string) => {
+    try {
+      console.log("this is clearChat ");
+      // Delete all messages from Supabase
+      const { data, error, count } = await supabase
+        .from("Messages")
+        .delete()
+        .eq("conversation_id", conversationId)
+        .select();
+
+      if (error) throw error;
+
+      console.log(
+        "[GroupStore] clearChat deleted count:",
+        count,
+        "data:",
+        data,
+      );
+
+      if (count === 0) {
+        console.warn(
+          "[GroupStore] clearChat: No messages deleted. Check RLS policies on Messages table.",
+        );
+      }
+
+      // Clear local messages state
+      set({ messages: [] });
+
+      // Update Conversation metadata
+      await supabase
+        .from("Conversation")
+        .update({
+          last_message: "No messages yet",
+          last_message_at: new Date().toISOString(),
+          last_message_sender_id: null,
+        })
+        .eq("id", conversationId);
+    } catch (error: any) {
+      console.error("[GroupStore] clearChat error:", error);
+      throw error;
+    }
+  },
+
+  deleteChat: async (conversationId: string) => {
+    try {
+      // 1. Delete all group messages first
+      const { error: msgError } = await supabase
+        .from("Messages")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (msgError) throw msgError;
+
+      // 2. Delete the conversation record
+      const { error: convError } = await supabase
+        .from("Conversation")
+        .delete()
+        .eq("id", conversationId);
+
+      if (convError) throw convError;
+
+      // 3. Clear local state
+      set({ messages: [], conversationId: null });
+    } catch (error: any) {
+      console.error("[GroupStore] deleteChat error:", error);
+      throw error;
+    }
+  },
+
   subscribeToGroupMessages: (conversationId: string) => {
-    const channelName = `group_room_${conversationId}`;
+    const uniqueId = Math.random().toString(36).substring(7);
+    const channelName = `group_room_${conversationId}_${uniqueId}`;
 
     const channel = supabase
       .channel(channelName)
       .on(
         "postgres_changes",
         {
-          event: "*", // Listen to all events: INSERT, UPDATE, DELETE
+          event: "*",
           schema: "public",
           table: "Messages",
           filter: `conversation_id=eq.${conversationId}`,
@@ -263,16 +351,20 @@ const useGroupStore = create<GroupStore>((set, get) => ({
               set({ messages: [...currentMessages, newMessage] });
             }
           } else if (payload.eventType === "UPDATE") {
-            const updatedMessage = payload.new as Message;
+            const updatedMessage = payload.new as Partial<Message>;
             set((state) => ({
               messages: state.messages.map((m) =>
-                m.id === updatedMessage.id ? updatedMessage : m,
+                String(m.id) === String(updatedMessage.id)
+                  ? { ...m, ...updatedMessage }
+                  : m,
               ),
             }));
           } else if (payload.eventType === "DELETE") {
             const deletedMessageId = payload.old.id;
             set((state) => ({
-              messages: state.messages.filter((m) => m.id !== deletedMessageId),
+              messages: state.messages.filter(
+                (m) => String(m.id) !== String(deletedMessageId),
+              ),
             }));
           }
         },

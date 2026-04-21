@@ -116,7 +116,6 @@ const useMessageStore = create<MessageStore>((set, get) => ({
       if (msgError) throw msgError;
 
       // Step 3 — Update Conversation metadata (last_message, timestamp)
-      // Fetch sender name for the initial
       await supabase
         .from("Conversation")
         .update({
@@ -144,40 +143,55 @@ const useMessageStore = create<MessageStore>((set, get) => ({
   // ─────────────────────────────────────────────────────────────────────────
   updateMessage: async (messageId: string, newContent: string) => {
     try {
-      const { error } = await supabase
+      const state = get();
+      // Use the actual ID type from the state
+      const targetMessage = state.messages.find(
+        (m) => String(m.id) === String(messageId),
+      );
+      if (!targetMessage) return;
+      console.log("🚀 ~ targetMessage:", targetMessage);
+
+      const { data, error } = await supabase
         .from("Messages")
         .update({ content: newContent })
-        .eq("id", messageId);
+        .eq("id", targetMessage.id)
+        .select();
+      console.log("🚀 ~ data:", data);
 
       if (error) throw error;
+
+      if (!data || data.length === 0) {
+        console.warn(
+          "[MessageStore] Update successful but no rows were modified. Check RLS policies or ID matching.",
+        );
+      }
 
       // Optimistic update
       set((state) => ({
         messages: state.messages.map((m) =>
-          m.id === messageId ? { ...m, content: newContent } : m,
+          String(m.id) === String(messageId)
+            ? { ...m, content: newContent }
+            : m,
         ),
       }));
 
       // Sync Conversation metadata if this was the last message
-      const state = get();
       const lastMsg = state.messages[state.messages.length - 1];
-      if (lastMsg && lastMsg.id === messageId && state.conversationId) {
-        const { data: sender } = await supabase
-          .from("User")
-          .select("name")
-          .eq("id", lastMsg.sender_id)
-          .single();
-
-        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
+      if (
+        lastMsg &&
+        String(lastMsg.id) === String(messageId) &&
+        state.conversationId
+      ) {
         await supabase
           .from("Conversation")
           .update({
-            last_message: `${initial}: ${newContent}`,
+            last_message: newContent,
             last_message_at: new Date().toISOString(),
           })
           .eq("id", state.conversationId);
       }
     } catch (error: any) {
+      console.error("[MessageStore] updateMessage error:", error);
       throw error;
     }
   },
@@ -196,7 +210,9 @@ const useMessageStore = create<MessageStore>((set, get) => ({
 
       // Optimistic delete
       set((state) => ({
-        messages: state.messages.filter((m) => m.id !== messageId),
+        messages: state.messages.filter(
+          (m) => String(m.id) !== String(messageId),
+        ),
       }));
 
       // Find the new last message and sync Conversation metadata
@@ -207,17 +223,10 @@ const useMessageStore = create<MessageStore>((set, get) => ({
       if (!conversationId) return;
 
       if (lastMsg) {
-        const { data: sender } = await supabase
-          .from("User")
-          .select("name")
-          .eq("id", lastMsg.sender_id)
-          .single();
-
-        const initial = sender?.name?.charAt(0)?.toUpperCase() || "?";
         await supabase
           .from("Conversation")
           .update({
-            last_message: `${initial}: ${lastMsg.content}`,
+            last_message: lastMsg.content,
             last_message_at: lastMsg.created_at,
             last_message_sender_id: lastMsg.sender_id,
           })
@@ -238,12 +247,85 @@ const useMessageStore = create<MessageStore>((set, get) => ({
   },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Clear all messages for a conversation
+  // ─────────────────────────────────────────────────────────────────────────
+  clearChat: async (conversationId: string) => {
+    try {
+      // Delete all messages from Supabase
+      const { data, error, count } = await supabase
+        .from("Messages")
+        .delete()
+        .eq("conversation_id", conversationId)
+        .select();
+
+      console.log("[MessageStore] clearChat response:", { data, error, count });
+
+      if (error) {
+        console.error("[MessageStore] clearChat Supabase error:", error);
+        throw error;
+      }
+
+      if (count === 0) {
+        console.warn(
+          "[MessageStore] clearChat: No messages deleted. Check RLS policies on Messages table.",
+        );
+      }
+
+      // Clear local messages state
+      set({ messages: [] });
+
+      // Update Conversation metadata
+      await supabase
+        .from("Conversation")
+        .update({
+          last_message: null,
+          last_message_at: null,
+          last_message_sender_id: null,
+        })
+        .eq("id", conversationId);
+    } catch (error: any) {
+      console.error("[MessageStore] clearChat error:", error);
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Delete the entire conversation
+  // ─────────────────────────────────────────────────────────────────────────
+  deleteChat: async (conversationId: string) => {
+    try {
+      // 1. Delete all messages first (manual clear)
+      const { error: msgError } = await supabase
+        .from("Messages")
+        .delete()
+        .eq("conversation_id", conversationId);
+
+      if (msgError) throw msgError;
+
+      // 2. Delete the conversation record
+      const { error: convError } = await supabase
+        .from("Conversation")
+        .delete()
+        .eq("id", conversationId);
+
+      if (convError) throw convError;
+
+      // 3. Clear local state
+      set({ messages: [], conversationId: null });
+    } catch (error: any) {
+      console.error("[MessageStore] deleteChat error:", error);
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Realtime subscription — listens for new, updated, and deleted messages
   // ─────────────────────────────────────────────────────────────────────────
   subscribeToMessages: (myId: string, otherId: string) => {
     // Unique channel name for this specific chat pair
+    const uniqueId = Math.random().toString(36).substring(7);
     const channelId = [myId, otherId].sort().join("_");
-    const channelName = `chat_room_${channelId}`;
+    const channelName = `chat_room_${channelId}_${uniqueId}`;
 
     const channel = supabase
       .channel(channelName)
@@ -278,16 +360,20 @@ const useMessageStore = create<MessageStore>((set, get) => ({
               set({ messages: [...currentMessages, newMessage] });
             }
           } else if (payload.eventType === "UPDATE") {
-            const updatedMessage = payload.new as Message;
+            const updatedMessage = payload.new as Partial<Message>;
             set((state) => ({
               messages: state.messages.map((m) =>
-                m.id === updatedMessage.id ? updatedMessage : m,
+                String(m.id) === String(updatedMessage.id)
+                  ? { ...m, ...updatedMessage }
+                  : m,
               ),
             }));
           } else if (payload.eventType === "DELETE") {
             const deletedMessageId = payload.old.id;
             set((state) => ({
-              messages: state.messages.filter((m) => m.id !== deletedMessageId),
+              messages: state.messages.filter(
+                (m) => String(m.id) !== String(deletedMessageId),
+              ),
             }));
           }
         },
