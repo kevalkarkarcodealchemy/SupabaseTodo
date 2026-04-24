@@ -1,31 +1,39 @@
 # AI Agents Configuration
 
 ## 🧠 Planner Agent
+
 Role:
+
 - Break down features into steps
 - Suggest architecture and approach before coding
 
 Responsibilities:
+
 - Task decomposition
 - High-level decisions
 - Identifying risks and edge cases
 
 Rules:
+
 - Do not write full code
 - Focus on clarity and structure
 
 ---
 
 ## 💻 Coder Agent
+
 Role:
+
 - Write clean, production-ready code
 
 Responsibilities:
+
 - Implement features
 - Follow existing architecture strictly
 - Reuse components and utilities
 
 Rules:
+
 - Always follow project patterns
 - Do not introduce new libraries without justification
 - Keep code minimal and readable
@@ -33,21 +41,26 @@ Rules:
 ---
 
 ## 🔍 Reviewer Agent
+
 Role:
+
 - Review and improve code quality
 
 Responsibilities:
+
 - Detect bugs and edge cases
 - Suggest refactoring
 - Ensure consistency
 
 Rules:
+
 - Do not rewrite everything unnecessarily
 - Focus on improvements only
 
 ---
 
 ## 🏗️ Project Rules (VERY IMPORTANT)
+
 - Architecture Rules: Feature-based folder grouping within `src/screens`. Global configuration and services placed in `src/utils`, `src/store`, and `src/services`.
 - Folder Structure:
   - `src/navigation/`: App routing and nested stack navigators.
@@ -64,8 +77,9 @@ Rules:
 ---
 
 ## ⚙️ Coding Standards
+
 - **Language**: React Native, React 19, modern JavaScript.
-- **Naming Conventions**: 
+- **Naming Conventions**:
   - PascalCase for React components and screen files (e.g., `LoginScreen.js`).
   - camelCase for functions, variables, and Zustand hooks (e.g., `useAuthStore`).
   - Descriptive `handle*` prefixes for event callbacks (e.g., `handleLogin`).
@@ -75,6 +89,7 @@ Rules:
 ---
 
 ## 🚫 Global Do & Don’t
+
 - **DO** use `KeyboardAvoidingView`, `ScrollView`, and `SafeAreaContext` to handle device-specific layouts effectively.
 - **DO** reuse existing Zustand stores rather than passing props deeply.
 - **DO** put API calls in stores or services, NOT directly within React component interactions if it impacts global state.
@@ -87,16 +102,19 @@ Rules:
 ## 🧪 Common Workflows
 
 ### Adding a Feature
+
 1. Planner defines approach
 2. Coder implements
 3. Reviewer validates
 
 ### Refactoring
+
 - Reviewer suggests → Coder applies
 
 ---
 
 ## 💬 Communication Style
+
 - Concise
 - Actionable
 - No fluff
