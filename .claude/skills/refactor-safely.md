@@ -9,11 +9,12 @@ Use the knowledge graph to plan and execute refactoring with confidence.
 
 ### Steps
 
-1. Use `refactor_tool` with mode="suggest" for community-driven refactoring suggestions.
-2. Use `refactor_tool` with mode="dead_code" to find unreferenced code.
-3. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
-4. Use `apply_refactor_tool` with the refactor_id to apply renames.
-5. After changes, run `detect_changes` to verify the refactoring impact.
+1. Use `get_minimal_context(task="...")` to gather minimal context before refactoring.
+2. Use `refactor_tool` with mode="suggest" for community-driven refactoring suggestions.
+3. Use `refactor_tool` with mode="dead_code" to find unreferenced code.
+4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
+5. Use `apply_refactor_tool` with the refactor_id to apply renames.
+6. After changes, run `detect_changes` to verify the refactoring impact.
 
 ### Safety Checks
 
