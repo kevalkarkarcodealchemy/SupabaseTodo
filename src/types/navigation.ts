@@ -30,4 +30,5 @@ export type TabParamList = {
   Friend: undefined;
   Chat: undefined;
   Setting: undefined;
+  Page: undefined;
 };
