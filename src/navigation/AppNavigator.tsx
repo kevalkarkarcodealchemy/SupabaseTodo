@@ -15,6 +15,7 @@ import { AppStackParamList, TabParamList } from "../types/navigation";
 import SettingIcon from "../assets/svg/SettingIcon";
 import FriendIcon from "../assets/svg/FriendIcon";
 import ChatIcon from "../assets/svg/ChatIcon";
+import PageScreen from "../screens/app/PageScreen";
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -31,6 +32,14 @@ const TabNavigator: React.FC = () => {
         tabBarLabelStyle: styles.tabBarLabel,
       }}
     >
+      <Tab.Screen
+        name="page"
+        component={PageScreen}
+        options={{
+          headerShown: false,
+          tabBarIcon: ({ color }) => <ChatIcon color={color} />,
+        }}
+      />
       <Tab.Screen
         name="Chat"
         component={ChatScreen}
